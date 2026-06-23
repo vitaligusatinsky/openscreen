@@ -43,6 +43,7 @@ import type { CursorRecordingSession } from "../native-bridge/cursor/recording/s
 import { patchWebmDurationOnDisk } from "../recording/webm-duration";
 import { canReadFileThroughBinaryIpc, createBinaryIpcFileTooLargeResult } from "./binaryFileBridge";
 import { registerNativeBridgeHandlers } from "./nativeBridge";
+import { resolveProjectMediaPathsForLoad } from "./projectMediaPaths";
 import { RecordingStreamRegistry, registerRecordingStreamHandlers } from "./recordingStream";
 
 const PROJECT_FILE_EXTENSION = "openscreen";
@@ -2692,7 +2693,7 @@ export function registerIpcHandlers(
 
 			const filePath = result.filePaths[0];
 			const content = await fs.readFile(filePath, "utf-8");
-			const project = JSON.parse(content);
+			const project = resolveProjectMediaPathsForLoad(JSON.parse(content), filePath);
 			currentProjectPath = filePath;
 			setCurrentRecordingSessionState(await getApprovedProjectSession(project, filePath));
 
@@ -2729,7 +2730,7 @@ export function registerIpcHandlers(
 				return { success: false, message: "File not found" };
 			}
 			const content = await fs.readFile(filePath, "utf-8");
-			const project = JSON.parse(content);
+			const project = resolveProjectMediaPathsForLoad(JSON.parse(content), filePath);
 			currentProjectPath = filePath;
 
 			// Approve session paths but tolerate failures (e.g. video moved outside trusted
@@ -2766,7 +2767,7 @@ export function registerIpcHandlers(
 			}
 
 			const content = await fs.readFile(currentProjectPath, "utf-8");
-			const project = JSON.parse(content);
+			const project = resolveProjectMediaPathsForLoad(JSON.parse(content), currentProjectPath);
 			setCurrentRecordingSessionState(await getApprovedProjectSession(project, currentProjectPath));
 			return {
 				success: true,
