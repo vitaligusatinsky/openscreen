@@ -41,6 +41,7 @@ import { createCursorRecordingSession } from "../native-bridge/cursor/recording/
 import { requestMacCursorAccessibilityAccess } from "../native-bridge/cursor/recording/macNativeCursorRecordingSession";
 import type { CursorRecordingSession } from "../native-bridge/cursor/recording/session";
 import { patchWebmDurationOnDisk } from "../recording/webm-duration";
+import { canReadFileThroughBinaryIpc, createBinaryIpcFileTooLargeResult } from "./binaryFileBridge";
 import { registerNativeBridgeHandlers } from "./nativeBridge";
 import { RecordingStreamRegistry, registerRecordingStreamHandlers } from "./recordingStream";
 
@@ -2528,6 +2529,11 @@ export function registerIpcHandlers(
 					success: false,
 					message: "File path is not approved or is not a supported video file",
 				};
+			}
+
+			const stats = await fs.stat(normalizedPath);
+			if (!canReadFileThroughBinaryIpc(stats.size)) {
+				return createBinaryIpcFileTooLargeResult(normalizedPath, stats.size);
 			}
 
 			const data = await fs.readFile(normalizedPath);

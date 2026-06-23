@@ -210,6 +210,9 @@ interface Window {
 			success: boolean;
 			data?: ArrayBuffer;
 			path?: string;
+			code?: "FILE_TOO_LARGE_FOR_BINARY_IPC";
+			sizeBytes?: number;
+			maxBytes?: number;
 			message?: string;
 			error?: string;
 		}>;
