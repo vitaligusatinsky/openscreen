@@ -53,6 +53,10 @@
 		"reactiveWebcam": "Riduci con lo zoom",
 		"reactiveWebcamDescription": "La webcam si riduce dolcemente durante lo zoom, così non intralcia.",
 		"help": "Come la webcam viene composta con lo schermo: picture-in-picture, pila verticale, doppio riquadro, forma della maschera, dimensione e effetto specchio.",
+		"webcamFraming": "Webcam framing",
+		"webcamCropZoom": "Crop zoom",
+		"webcamCropX": "Horizontal pan",
+		"webcamCropY": "Vertical pan",
 		"shapes": {
 			"rectangle": "Rett.",
 			"circle": "Cerchio",
@@ -297,5 +301,13 @@
 		"lineLength": "Lunghezza riga",
 		"minWords": "Parole min. per riga",
 		"maxWords": "Parole max. per riga"
+	},
+	"audio": {
+		"title": "Audio",
+		"autoMaster": "Auto master",
+		"syncOffset": "Sync offset",
+		"outputGain": "Output trim",
+		"reset": "Reset audio",
+		"help": "Automatically clean and balance voice audio, then fine-tune timing and level."
 	}
 }

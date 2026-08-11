@@ -53,6 +53,10 @@
 		"reactiveWebcam": "缩放时缩小",
 		"reactiveWebcamDescription": "放大视频时摄像头会平滑缩小，以免遮挡内容。",
 		"help": "摄像头与屏幕的合成方式：画中画、垂直堆叠、双画面、遮罩形状、大小和镜像。",
+		"webcamFraming": "Webcam framing",
+		"webcamCropZoom": "Crop zoom",
+		"webcamCropX": "Horizontal pan",
+		"webcamCropY": "Vertical pan",
 		"shapes": {
 			"rectangle": "矩形",
 			"circle": "圆形",
@@ -297,5 +301,13 @@
 		"lineLength": "行长",
 		"minWords": "每行最少词数",
 		"maxWords": "每行最多词数"
+	},
+	"audio": {
+		"title": "Audio",
+		"autoMaster": "Auto master",
+		"syncOffset": "Sync offset",
+		"outputGain": "Output trim",
+		"reset": "Reset audio",
+		"help": "Automatically clean and balance voice audio, then fine-tune timing and level."
 	}
 }

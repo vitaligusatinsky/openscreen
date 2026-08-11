@@ -53,6 +53,10 @@
 		"reactiveWebcam": "تصغير عند التكبير",
 		"reactiveWebcamDescription": "تتقلص الكاميرا بسلاسة أثناء تكبير الفيديو حتى لا تعيق الرؤية.",
 		"help": "طريقة دمج كاميرا الويب مع الشاشة: صورة داخل صورة، أو تكديس عمودي، أو إطار مزدوج، وشكل القناع والحجم والانعكاس.",
+		"webcamFraming": "Webcam framing",
+		"webcamCropZoom": "Crop zoom",
+		"webcamCropX": "Horizontal pan",
+		"webcamCropY": "Vertical pan",
 		"shapes": {
 			"rectangle": "مستطيل",
 			"circle": "دائرة",
@@ -297,5 +301,13 @@
 		"lineLength": "طول السطر",
 		"minWords": "أقل عدد كلمات في السطر",
 		"maxWords": "أكثر عدد كلمات في السطر"
+	},
+	"audio": {
+		"title": "Audio",
+		"autoMaster": "Auto master",
+		"syncOffset": "Sync offset",
+		"outputGain": "Output trim",
+		"reset": "Reset audio",
+		"help": "Automatically clean and balance voice audio, then fine-tune timing and level."
 	}
 }
