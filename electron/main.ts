@@ -23,7 +23,7 @@ import {
 import { mainT, setMainLocale } from "./i18n";
 import { getSelectedDesktopSource, registerIpcHandlers } from "./ipc/handlers";
 import { installMainProcessErrorGuards } from "./main-process-errors";
-import { registerSttIpc } from "./stt";
+import { registerSttIpc, shutdownStt } from "./stt";
 import {
 	createCountdownOverlayWindow,
 	createEditorWindow,
@@ -510,6 +510,28 @@ app.on("activate", () => {
 	if (!hasVisibleWindow) {
 		showMainWindow();
 	}
+});
+
+let sttShutdownPromise: Promise<void> | null = null;
+let sttShutdownFinished = false;
+
+// Electron does not wait for an async event listener. Hold the first quit long
+// enough to terminate the long-lived Whisper helper, then re-enter app.quit()
+// with a guard so the second before-quit event can proceed normally. Without
+// this, a normal Cmd+Q orphaned the helper under launchd with the model and GPU
+// resources still resident after every OpenScreen window had gone away.
+app.on("before-quit", (event) => {
+	if (sttShutdownFinished) return;
+	event.preventDefault();
+	if (sttShutdownPromise) return;
+	sttShutdownPromise = shutdownStt()
+		.catch((error) => {
+			console.error("[stt] Failed to stop whisper helper during app quit:", error);
+		})
+		.finally(() => {
+			sttShutdownFinished = true;
+			app.quit();
+		});
 });
 
 app.on("will-quit", () => {

@@ -42,7 +42,7 @@ const REQUEST_TIMEOUT_MS = 280_000;
  * and the renderer doesn't move.
  *
  * Word timestamps come from whisper.cpp's native DTW token timestamps
- * (`t_dtw`, SMALL aheads preset, `flash_attn = false` so DTW is actually
+ * (`t_dtw`, LARGE_V3_TURBO aheads preset, `flash_attn = false` so DTW is actually
  * computed). The helper returns them already absolute, so no segment-offset
  * arithmetic is required.
  *
@@ -52,7 +52,7 @@ const REQUEST_TIMEOUT_MS = 280_000;
  */
 
 export interface WhisperServerStartOptions {
-	/** Absolute path to the GGML model file (e.g. ggml-small-q8_0.bin). */
+	/** Absolute path to the GGML model file (e.g. ggml-large-v3-turbo-q5_0.bin). */
 	modelPath: string;
 	/** Externally-resolved binary path (skips gpuDetector on startup); null = auto. */
 	binaryPath?: string | null;
@@ -97,6 +97,7 @@ interface WhisperJsonResponse {
 
 export class WhisperServerManager {
 	private process: WhisperChild | null = null;
+	private shuttingDown = false;
 	private port: number | null = null;
 	private backend: SttBackend | null = null;
 	private lastError: string | null = null;
@@ -127,15 +128,21 @@ export class WhisperServerManager {
 	}
 
 	/** Check the server's HTTP root for a 200; resolves once responsive. */
-	private static async pollUntilReady(baseUrl: string, timeoutMs = 30_000): Promise<void> {
+	private static async pollUntilReady(
+		baseUrl: string,
+		timeoutMs = 60_000,
+		shouldContinue: () => boolean = () => true,
+	): Promise<void> {
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
+			if (!shouldContinue()) throw new Error("whisper-stt-server exited before readiness");
 			try {
 				const res = await fetch(baseUrl, { method: "GET" });
 				if (res.ok) return;
 			} catch {
 				// not up yet
 			}
+			if (!shouldContinue()) throw new Error("whisper-stt-server exited before readiness");
 			await new Promise((resolve) => setTimeout(resolve, 250));
 		}
 		throw new Error(`whisper-stt-server at ${baseUrl} did not respond within ${timeoutMs}ms`);
@@ -163,6 +170,9 @@ export class WhisperServerManager {
 	 * the cold-start cost twice.
 	 */
 	async start(options: WhisperServerStartOptions): Promise<{ port: number; backend: SttBackend }> {
+		if (this.shuttingDown) {
+			throw new Error("whisper-stt-server manager is shutting down");
+		}
 		if (this.process && this.port) {
 			return { port: this.port, backend: this.backend ?? options.backend ?? "whispercpp-cpu" };
 		}
@@ -170,7 +180,8 @@ export class WhisperServerManager {
 		const resolved = options.binaryPath
 			? { path: options.binaryPath, backend: options.backend ?? "whispercpp-cpu" }
 			: await resolveBinaryPath();
-		if (!resolved.path) {
+		const binaryPath = resolved.path;
+		if (!binaryPath) {
 			const message =
 				"whisper-stt-server binary not found; build it via scripts/build-whisper-stt.sh";
 			this.recordError(message);
@@ -178,12 +189,12 @@ export class WhisperServerManager {
 		}
 		try {
 			if (process.platform !== "win32") {
-				await access(resolved.path, fsConstants.X_OK);
-			} else if (!existsSync(resolved.path)) {
+				await access(binaryPath, fsConstants.X_OK);
+			} else if (!existsSync(binaryPath)) {
 				throw new Error("not found");
 			}
 		} catch {
-			const message = `whisper-stt-server binary at ${resolved.path} is not executable`;
+			const message = `whisper-stt-server binary at ${binaryPath} is not executable`;
 			this.recordError(message);
 			throw new Error(message);
 		}
@@ -191,10 +202,12 @@ export class WhisperServerManager {
 			throw new Error(`Whisper GGML model not found at ${options.modelPath}`);
 		}
 
-		const port = await WhisperServerManager.pickFreePort();
-		const child = spawn(
-			resolved.path,
-			[
+		const launch = async (forceCpu: boolean): Promise<{ port: number; backend: SttBackend }> => {
+			const port = await WhisperServerManager.pickFreePort();
+			if (this.shuttingDown) {
+				throw new Error("whisper-stt-server manager is shutting down");
+			}
+			const args = [
 				"--model",
 				options.modelPath,
 				"--port",
@@ -203,50 +216,85 @@ export class WhisperServerManager {
 				"127.0.0.1",
 				"--threads",
 				String(Math.max(1, os.cpus().length)),
-			],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
+			];
+			if (forceCpu) args.push("--cpu");
+			const child = spawn(binaryPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+			const activeBackend: SttBackend = forceCpu ? "whispercpp-cpu" : resolved.backend;
 
-		this.process = child;
-		this.port = port;
-		this.backend = resolved.backend;
-		this.startedAtMs = Date.now();
-		this.stderrTail = "";
-		this.lastError = null;
+			this.process = child;
+			this.port = port;
+			this.backend = activeBackend;
+			this.startedAtMs = Date.now();
+			this.stderrTail = "";
+			this.lastError = null;
 
-		child.stdout?.on("data", (chunk: Buffer) => {
-			process.stdout.write(`[whisper-stt-server] ${chunk.toString()}`);
-		});
+			child.stdout?.on("data", (chunk: Buffer) => {
+				process.stdout.write(`[whisper-stt-server] ${chunk.toString()}`);
+			});
 
-		child.stderr.on("data", (chunk: Buffer) => {
-			const text = chunk.toString();
-			process.stderr.write(`[whisper-stt-server] ${text}`);
-			this.stderrTail = (this.stderrTail + text).slice(-this.stderrTailMax);
-		});
-		child.once("exit", (code) => {
-			if (this.process === child) {
-				const reason =
-					code === null
-						? "exited without code"
-						: `exited with code ${code}; stderr=${this.stderrTail.slice(-512)}`;
-				this.recordError(reason);
-				this.process = null;
-				this.port = null;
-				this.startedAtMs = null;
+			child.stderr.on("data", (chunk: Buffer) => {
+				const text = chunk.toString();
+				process.stderr.write(`[whisper-stt-server] ${text}`);
+				this.stderrTail = (this.stderrTail + text).slice(-this.stderrTailMax);
+			});
+			child.once("exit", (code) => {
+				if (this.process === child) {
+					const reason =
+						code === null
+							? "exited without code"
+							: `exited with code ${code}; stderr=${this.stderrTail.slice(-512)}`;
+					this.recordError(reason);
+					this.process = null;
+					this.port = null;
+					this.startedAtMs = null;
+				}
+			});
+			child.once("error", (err) => {
+				this.recordError(`spawn error: ${err.message}`);
+			});
+
+			const exitedBeforeReady = new Promise<never>((_, reject) => {
+				child.once("exit", (code) => {
+					reject(
+						new Error(
+							`whisper-stt-server exited during startup (${code ?? "no code"}); ` +
+								`stderr=${this.stderrTail.slice(-512)}`,
+						),
+					);
+				});
+				child.once("error", reject);
+			});
+			try {
+				await Promise.race([
+					WhisperServerManager.pollUntilReady(
+						`http://127.0.0.1:${port}`,
+						60_000,
+						() => this.process === child,
+					),
+					exitedBeforeReady,
+				]);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				await this.stop();
+				this.recordError(message);
+				throw new Error(message);
 			}
-		});
-		child.once("error", (err) => {
-			this.recordError(`spawn error: ${err.message}`);
-		});
+			return { port, backend: activeBackend };
+		};
 
-		const baseUrl = `http://127.0.0.1:${port}`;
 		try {
-			await WhisperServerManager.pollUntilReady(baseUrl);
+			return await launch(false);
 		} catch (err) {
-			await this.stop();
-			throw err instanceof Error ? err : new Error(String(err));
+			const startupLog = `${err instanceof Error ? err.message : String(err)} ${this.stderrTail}`;
+			const gpuStartupFailed =
+				resolved.backend !== "whispercpp-cpu" &&
+				/(?:ggml_(?:metal|vulkan|cuda)|gpu).*(?:fail|error|allocat)/i.test(startupLog);
+			if (!gpuStartupFailed) throw err;
+			process.stderr.write(
+				"[whisper-stt-server] GPU startup failed; retrying with CPU inference\n",
+			);
+			return launch(true);
 		}
-		return { port, backend: resolved.backend };
 	}
 
 	/** Send SIGTERM and wait for the helper to exit. Resolves even if it was already down. */
@@ -272,6 +320,12 @@ export class WhisperServerManager {
 		} catch {
 			child.kill("SIGKILL");
 		}
+	}
+
+	/** Permanently prevent respawn, then stop the currently owned helper. */
+	async shutdown(): Promise<void> {
+		this.shuttingDown = true;
+		await this.stop();
 	}
 
 	private baseUrl(): string {
